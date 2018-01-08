@@ -1976,8 +1976,14 @@ static blk_status_t btrfs_submit_bio_hook(void *private_data, struct bio *bio,
 		async = 0;
 #endif
 
-	if (btrfs_is_free_space_inode(BTRFS_I(inode)))
+	/* the free space cache is really metadata, make sure it goes down
+	 * the tubes correctly to avoid priority inversions
+	 */
+	if (btrfs_is_free_space_inode(BTRFS_I(inode))) {
 		metadata = BTRFS_WQ_ENDIO_FREE_SPACE;
+		bio->bi_opf |= REQ_META;
+		async = 0;
+	}
 
 	if (bio_op(bio) != REQ_OP_WRITE) {
 		ret = btrfs_bio_wq_end_io(fs_info, bio, metadata);
