@@ -321,7 +321,7 @@ static inline bool blk_cgroup_congested(void)
  */
 static inline bool bio_issue_as_root_blkg(struct bio *bio)
 {
-	return (bio->bi_opf & (REQ_META | REQ_SWAP)) != 0;
+	return (bio->bi_opf & (REQ_META | REQ_SWAP | REQ_CGROOT)) != 0;
 }
 
 /**
