@@ -367,6 +367,7 @@ struct async_extent {
 };
 
 struct async_cow {
+	struct cgroup_subsys_state *blkcg_css;
 	struct inode *inode;
 	struct btrfs_fs_info *fs_info;
 	struct page *locked_page;
@@ -855,7 +856,8 @@ retry:
 				    ins.objectid,
 				    ins.offset, async_extent->pages,
 				    async_extent->nr_pages,
-				    async_cow->write_flags)) {
+				    async_cow->write_flags,
+				    async_cow->blkcg_css)) {
 			struct page *p = async_extent->pages[0];
 			const u64 start = async_extent->start;
 			const u64 end = start + async_extent->ram_size - 1;
@@ -1181,10 +1183,15 @@ static noinline void async_cow_free(struct btrfs_work *work)
 	async_cow = container_of(work, struct async_cow, work);
 	if (async_cow->inode)
 		btrfs_add_delayed_iput(async_cow->inode);
+
+	if (async_cow->blkcg_css)
+		css_put(async_cow->blkcg_css);
 	kfree(async_cow);
 }
 
-static int cow_file_range_async(struct inode *inode, struct page *locked_page,
+static int cow_file_range_async(struct inode *inode,
+				struct writeback_control *wbc,
+				struct page *locked_page,
 				u64 start, u64 end, int *page_started,
 				unsigned long *nr_written,
 				unsigned int write_flags)
@@ -1209,6 +1216,13 @@ static int cow_file_range_async(struct inode *inode, struct page *locked_page,
 		async_cow->locked_page = locked_page;
 		async_cow->start = start;
 		async_cow->write_flags = write_flags;
+
+		if (wbc->wb && wbc->wb->blkcg_css) {
+			css_get(wbc->wb->blkcg_css);
+			async_cow->blkcg_css = wbc->wb->blkcg_css;
+		} else {
+			async_cow->blkcg_css = NULL;
+		}
 
 		if (BTRFS_I(inode)->flags & BTRFS_INODE_NOCOMPRESS &&
 		    !btrfs_test_opt(fs_info, FORCE_COMPRESS))
@@ -1616,7 +1630,7 @@ int btrfs_run_delalloc_range(struct inode *inode, struct page *locked_page,
 	} else {
 		set_bit(BTRFS_INODE_HAS_ASYNC_EXTENT,
 			&BTRFS_I(inode)->runtime_flags);
-		ret = cow_file_range_async(inode, locked_page, start, end,
+		ret = cow_file_range_async(inode, wbc, locked_page, start, end,
 					   page_started, nr_written,
 					   write_flags);
 	}

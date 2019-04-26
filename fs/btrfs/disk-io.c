@@ -782,6 +782,13 @@ static void run_one_async_done(struct btrfs_work *work)
 		return;
 	}
 
+	/*
+	 * all of the bios that pass through here are from async helper
+	 * functions.  Use REQ_CGROOT to make sure the IO gets backcharged
+	 * to the correct cgroup.  This changes nothing when cgroups
+	 * aren't in use.
+	 */
+	async->bio->bi_opf |= REQ_CGROOT;
 	ret = btrfs_map_bio(btrfs_sb(inode->i_sb), async->bio,
 			    async->mirror_num);
 	if (ret) {
