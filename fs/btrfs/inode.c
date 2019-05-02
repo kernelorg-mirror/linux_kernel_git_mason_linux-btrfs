@@ -671,10 +671,11 @@ cleanup_and_bail_uncompressed:
 	 * to our extent and set things up for the async work queue to run
 	 * cow_file_range to do the normal delalloc dance.
 	 */
-	if (page_offset(locked_page) >= start &&
-	    page_offset(locked_page) <= end)
+	if (locked_page && (page_offset(locked_page) >= start &&
+			    page_offset(locked_page) <= end)) {
 		__set_page_dirty_nobuffers(locked_page);
 		/* unlocked later on in the async handlers */
+	}
 
 	if (redirty)
 		extent_range_redirty_for_io(inode, start, end);
@@ -768,7 +769,7 @@ retry:
 						  async_extent->start +
 						  async_extent->ram_size - 1,
 						  WB_SYNC_ALL);
-			else if (ret)
+			else if (ret && async_cow->locked_page)
 				unlock_page(async_cow->locked_page);
 			kfree(async_extent);
 			cond_resched();
@@ -1206,6 +1207,7 @@ static int cow_file_range_async(struct inode *inode,
 	while (start < end) {
 		async_cow = kmalloc(sizeof(*async_cow), GFP_NOFS);
 		BUG_ON(!async_cow); /* -ENOMEM */
+
 		/*
 		 * igrab is called higher up in the call chain, take only the
 		 * lightweight reference for the callback lifetime
@@ -1213,7 +1215,23 @@ static int cow_file_range_async(struct inode *inode,
 		ihold(inode);
 		async_cow->inode = inode;
 		async_cow->fs_info = fs_info;
-		async_cow->locked_page = locked_page;
+
+		/*
+		 * the locked_page comes all the way from writepage and its
+		 * the original page we were actually given.  As we spread
+		 * this large delalloc region across multiple async_cow
+		 * structs, only the first struct needs a pointer to locked_page
+		 *
+		 * This way we don't need racey decisions about who is supposed
+		 * to unlock it.
+		 */
+		if (locked_page) {
+			async_cow->locked_page = locked_page;
+			locked_page = NULL;
+		} else {
+			async_cow->locked_page = NULL;
+		}
+
 		async_cow->start = start;
 		async_cow->write_flags = write_flags;
 
