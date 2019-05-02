@@ -4057,6 +4057,7 @@ int extent_write_locked_range(struct inode *inode, u64 start, u64 end,
 		.range_end	= end + 1,
 	};
 
+	wbc_attach_fdatawrite_inode(&wbc_writepages, inode);
 	while (start <= end) {
 		page = find_get_page(mapping, start >> PAGE_SHIFT);
 		if (clear_page_dirty_for_io(page))
@@ -4071,6 +4072,7 @@ int extent_write_locked_range(struct inode *inode, u64 start, u64 end,
 	}
 
 	flush_write_bio(&epd);
+	wbc_detach_inode(&wbc_writepages);
 	return ret;
 }
 
